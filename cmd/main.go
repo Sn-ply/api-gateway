@@ -65,7 +65,9 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(authMW.Authenticate)
 
+		r.Handle("/api/v1/users/{user_id}/posts", p.PostService())
 		r.Handle("/api/v1/users/*", p.UserService())
+		r.Handle("/api/v1/posts", p.PostService())
 		r.Handle("/api/v1/posts/*", p.PostService())
 		r.Handle("/api/v1/comments/*", p.PostService())
 		r.Handle("/api/v1/feed", p.PostService())
