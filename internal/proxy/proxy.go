@@ -10,12 +10,14 @@ import (
 )
 
 type ReverseProxy struct {
-	userProxy *httputil.ReverseProxy
-	postProxy *httputil.ReverseProxy
-	log       *zap.Logger
+	userProxy     *httputil.ReverseProxy
+	postProxy     *httputil.ReverseProxy
+	relationProxy *httputil.ReverseProxy
+	likeProxy     *httputil.ReverseProxy
+	log           *zap.Logger
 }
 
-func New(userServiceURL, postServiceURL string, log *zap.Logger) (*ReverseProxy, error) {
+func New(userServiceURL, postServiceURL, relationServiceURL, likeServiceURL string, log *zap.Logger) (*ReverseProxy, error) {
 	userURL, err := url.Parse(userServiceURL)
 	if err != nil {
 		return nil, err
@@ -24,11 +26,21 @@ func New(userServiceURL, postServiceURL string, log *zap.Logger) (*ReverseProxy,
 	if err != nil {
 		return nil, err
 	}
+	relationURL, err := url.Parse(relationServiceURL)
+	if err != nil {
+		return nil, err
+	}
+	likeURL, err := url.Parse(likeServiceURL)
+	if err != nil {
+		return nil, err
+	}
 
 	return &ReverseProxy{
-		userProxy: newProxy(userURL, log),
-		postProxy: newProxy(postURL, log),
-		log:       log,
+		userProxy:     newProxy(userURL, log),
+		postProxy:     newProxy(postURL, log),
+		relationProxy: newProxy(relationURL, log),
+		likeProxy:     newProxy(likeURL, log),
+		log:           log,
 	}, nil
 }
 
@@ -49,4 +61,12 @@ func (p *ReverseProxy) UserService() http.Handler {
 
 func (p *ReverseProxy) PostService() http.Handler {
 	return p.postProxy
+}
+
+func (p *ReverseProxy) RelationService() http.Handler {
+	return p.relationProxy
+}
+
+func (p *ReverseProxy) LikeService() http.Handler {
+	return p.likeProxy
 }

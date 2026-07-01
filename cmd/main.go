@@ -30,7 +30,7 @@ func main() {
 		log.Fatal("failed to load config", zap.Error(err))
 	}
 
-	p, err := proxy.New(cfg.Upstreams.UserServiceURL, cfg.Upstreams.PostServiceURL, log)
+	p, err := proxy.New(cfg.Upstreams.UserServiceURL, cfg.Upstreams.PostServiceURL, cfg.Upstreams.RelationServiceURL, cfg.Upstreams.LikeServiceURL, log)
 	if err != nil {
 		log.Fatal("failed to create proxy", zap.Error(err))
 	}
@@ -66,12 +66,15 @@ func main() {
 		r.Use(authMW.Authenticate)
 
 		r.Handle("/api/v1/users/{user_id}/posts", p.PostService())
+		r.Handle("/api/v1/users/{user_id}/posts/count", p.PostService())
 		r.Handle("/api/v1/users/*", p.UserService())
 		r.Handle("/api/v1/posts", p.PostService())
 		r.Handle("/api/v1/posts/*", p.PostService())
 		r.Handle("/api/v1/comments/*", p.PostService())
 		r.Handle("/api/v1/feed", p.PostService())
 		r.Handle("/api/v1/feed/*", p.PostService())
+		r.Handle("/api/v1/relations/*", p.RelationService())
+		r.Handle("/api/v1/likes/*", p.LikeService())
 
 		// WebSocket endpoint
 		r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
