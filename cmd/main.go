@@ -14,8 +14,9 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
-	gatewayMiddleware "github.com/snaply/api-gateway/internal/middleware"
 	"github.com/snaply/api-gateway/internal/config"
+	"github.com/snaply/api-gateway/internal/handler"
+	gatewayMiddleware "github.com/snaply/api-gateway/internal/middleware"
 	"github.com/snaply/api-gateway/internal/proxy"
 	"github.com/snaply/api-gateway/internal/ws"
 	"go.uber.org/zap"
@@ -30,7 +31,15 @@ func main() {
 		log.Fatal("failed to load config", zap.Error(err))
 	}
 
-	p, err := proxy.New(cfg.Upstreams.UserServiceURL, cfg.Upstreams.PostServiceURL, cfg.Upstreams.RelationServiceURL, cfg.Upstreams.LikeServiceURL, log)
+	p, err := proxy.New(
+		cfg.Upstreams.UserServiceURL,
+		cfg.Upstreams.PostServiceURL,
+		cfg.Upstreams.RelationServiceURL,
+		cfg.Upstreams.LikeServiceURL,
+		cfg.Upstreams.NotificationServiceURL,
+		cfg.Upstreams.MessageServiceURL,
+		log,
+	)
 	if err != nil {
 		log.Fatal("failed to create proxy", zap.Error(err))
 	}
@@ -38,6 +47,7 @@ func main() {
 	hub := ws.NewHub(log)
 	authMW := gatewayMiddleware.NewAuthMiddleware(cfg.JWT.Secret, log)
 	rateMW := gatewayMiddleware.NewRateLimiter(cfg.RateLimit.RequestsPerSecond, cfg.RateLimit.Burst, log)
+	internalH := handler.NewInternalHandler(hub, cfg.Internal.Secret, log)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -61,6 +71,10 @@ func main() {
 		r.Handle("/*", p.UserService())
 	})
 
+	// Internal service-to-service routes — gated by X-Internal-Secret, not JWT.
+	// Only reachable from other containers on snaply-net, never proxied from client traffic.
+	r.Post("/internal/ws/send", internalH.SendWS)
+
 	// Protected routes
 	r.Group(func(r chi.Router) {
 		r.Use(authMW.Authenticate)
@@ -75,6 +89,11 @@ func main() {
 		r.Handle("/api/v1/feed/*", p.PostService())
 		r.Handle("/api/v1/relations/*", p.RelationService())
 		r.Handle("/api/v1/likes/*", p.LikeService())
+		r.Handle("/api/v1/notifications", p.NotificationService())
+		r.Handle("/api/v1/notifications/*", p.NotificationService())
+		r.Handle("/api/v1/conversations", p.MessageService())
+		r.Handle("/api/v1/conversations/*", p.MessageService())
+		r.Handle("/api/v1/messages/*", p.MessageService())
 
 		// WebSocket endpoint
 		r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {

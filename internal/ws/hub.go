@@ -47,18 +47,24 @@ func (h *Hub) Unregister(userID uuid.UUID) {
 	h.log.Info("ws client unregistered", zap.String("user_id", userID.String()))
 }
 
-func (h *Hub) SendToUser(userID uuid.UUID, message any) error {
+// SendToUser writes message to userID's connection, if any. The returned bool reports
+// whether the user was connected — callers (the internal delivery endpoint, in
+// particular) use this to distinguish "delivered" from "no such connection".
+func (h *Hub) SendToUser(userID uuid.UUID, message any) (bool, error) {
 	h.mu.RLock()
 	conn, ok := h.connections[userID]
 	h.mu.RUnlock()
 	if !ok {
-		return nil
+		return false, nil
 	}
 	data, err := json.Marshal(message)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return conn.WriteMessage(websocket.TextMessage, data)
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ServeWS upgrades the connection and blocks reading until the client disconnects.
@@ -73,10 +79,53 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, userID uuid.UUID) 
 	h.Register(userID, conn)
 	defer h.Unregister(userID)
 
-	// Read loop — keeps the connection alive and handles client-initiated close
+	// Read loop — keeps the connection alive, handles client-initiated close, and
+	// forwards typing indicators directly to the target user (no DB write, no Kafka —
+	// this fires on every keystroke and has to be as close to instant as possible).
 	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
+		_, data, err := conn.ReadMessage()
+		if err != nil {
 			break
 		}
+		h.handleClientMessage(userID, data)
+	}
+}
+
+type clientMessage struct {
+	Type           string `json:"type"`
+	ConversationID string `json:"conversation_id"`
+	RecipientID    string `json:"recipient_id"`
+}
+
+func (h *Hub) handleClientMessage(senderID uuid.UUID, data []byte) {
+	var msg clientMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return
+	}
+
+	var typing bool
+	switch msg.Type {
+	case "typing.start":
+		typing = true
+	case "typing.stop":
+		typing = false
+	default:
+		return
+	}
+
+	recipientID, err := uuid.Parse(msg.RecipientID)
+	if err != nil {
+		return
+	}
+
+	if _, err := h.SendToUser(recipientID, map[string]any{
+		"type": "typing.indicator",
+		"data": map[string]any{
+			"conversation_id": msg.ConversationID,
+			"user_id":         senderID.String(),
+			"typing":          typing,
+		},
+	}); err != nil {
+		h.log.Warn("failed to forward typing indicator", zap.Error(err))
 	}
 }

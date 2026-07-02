@@ -10,14 +10,16 @@ import (
 )
 
 type ReverseProxy struct {
-	userProxy     *httputil.ReverseProxy
-	postProxy     *httputil.ReverseProxy
-	relationProxy *httputil.ReverseProxy
-	likeProxy     *httputil.ReverseProxy
-	log           *zap.Logger
+	userProxy         *httputil.ReverseProxy
+	postProxy         *httputil.ReverseProxy
+	relationProxy     *httputil.ReverseProxy
+	likeProxy         *httputil.ReverseProxy
+	notificationProxy *httputil.ReverseProxy
+	messageProxy      *httputil.ReverseProxy
+	log               *zap.Logger
 }
 
-func New(userServiceURL, postServiceURL, relationServiceURL, likeServiceURL string, log *zap.Logger) (*ReverseProxy, error) {
+func New(userServiceURL, postServiceURL, relationServiceURL, likeServiceURL, notificationServiceURL, messageServiceURL string, log *zap.Logger) (*ReverseProxy, error) {
 	userURL, err := url.Parse(userServiceURL)
 	if err != nil {
 		return nil, err
@@ -34,13 +36,23 @@ func New(userServiceURL, postServiceURL, relationServiceURL, likeServiceURL stri
 	if err != nil {
 		return nil, err
 	}
+	notificationURL, err := url.Parse(notificationServiceURL)
+	if err != nil {
+		return nil, err
+	}
+	messageURL, err := url.Parse(messageServiceURL)
+	if err != nil {
+		return nil, err
+	}
 
 	return &ReverseProxy{
-		userProxy:     newProxy(userURL, log),
-		postProxy:     newProxy(postURL, log),
-		relationProxy: newProxy(relationURL, log),
-		likeProxy:     newProxy(likeURL, log),
-		log:           log,
+		userProxy:         newProxy(userURL, log),
+		postProxy:         newProxy(postURL, log),
+		relationProxy:     newProxy(relationURL, log),
+		likeProxy:         newProxy(likeURL, log),
+		notificationProxy: newProxy(notificationURL, log),
+		messageProxy:      newProxy(messageURL, log),
+		log:               log,
 	}, nil
 }
 
@@ -69,4 +81,12 @@ func (p *ReverseProxy) RelationService() http.Handler {
 
 func (p *ReverseProxy) LikeService() http.Handler {
 	return p.likeProxy
+}
+
+func (p *ReverseProxy) NotificationService() http.Handler {
+	return p.notificationProxy
+}
+
+func (p *ReverseProxy) MessageService() http.Handler {
+	return p.messageProxy
 }
